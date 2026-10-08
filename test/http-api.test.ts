@@ -1,20 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { createApi, type Bus } from '../http-api.ts';
+import { createApi, type Bus, type AccessEvent } from '../http-api.ts';
 import { actionSchema } from '../action-schema.ts';
 import { connectAppServer } from '../core.ts';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 
-async function fixture(t: any, overrides: Partial<Bus> = {}) {
+async function fixture(t: any, overrides: Partial<Bus> = {}, onAccess?: (event: AccessEvent) => void) {
   const key = randomBytes(32).toString('hex');
   const bus: Bus = {
     createSession: async () => 'thread-1', resumeSession: async id => id,
     sendMessage: async (id, text) => ({ threadId: id, turnId: 'turn-1', status: 'completed', response: `Reply: ${text}` }),
     ...overrides,
   };
-  const server = createApi(bus, key);
+  const server = createApi(bus, key, onAccess);
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise<void>(resolve => { server.close(resolve); server.closeAllConnections(); }));
   const address = server.address() as { port: number };
@@ -34,6 +34,26 @@ test('all endpoints require bearer authentication', async t => {
   assert.equal((await call('/sessions', 'POST', undefined, false)).status, 401);
   assert.equal(created, false);
   assert.equal((await call('/health')).status, 200);
+});
+
+test('diagnostics record arrival and status without credentials, queries, bodies or IDs', async t => {
+  const events: AccessEvent[] = [];
+  const { call } = await fixture(t, {}, event => events.push(event));
+  await call('/health?private=DO_NOT_LOG', 'GET', undefined, false);
+  assert.deepEqual(events, [
+    { method: 'GET', route: '/health', status: 'received' },
+    { method: 'GET', route: '/health', status: 401 },
+  ]);
+  await call('/sessions', 'POST');
+  await call('/sessions/thread-1/messages?private=DO_NOT_LOG', 'POST', { message: 'PRIVATE_BODY' });
+  await call('/jobs/PRIVATE_JOB_ID');
+  await call('/PRIVATE_PATH');
+  const encoded = JSON.stringify(events);
+  for (const secret of ['DO_NOT_LOG', 'PRIVATE_BODY', 'PRIVATE_JOB_ID', 'PRIVATE_PATH', 'thread-1']) {
+    assert.ok(!encoded.includes(secret));
+  }
+  assert.ok(events.some(e => e.route === '/sessions/{threadId}/messages' && e.status === 202));
+  assert.ok(events.some(e => e.route === '/jobs/{jobId}' && e.status === 404));
 });
 
 test('create, submit, poll, and continue on the same thread', async t => {

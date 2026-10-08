@@ -11,7 +11,9 @@ const bus = await startPachiBus(import.meta.dirname, {
   error: () => console.error('Codex reported a turn error.'),
   serverRequest: request => console.error(`Server request: ${request.method}`),
 });
-const server = createApi(bus, key);
+const server = createApi(bus, key, ({ method, route, status }) => {
+  console.log(`[HTTP] ${method} ${route} → ${status === 'received' ? 'recibido' : status}`);
+});
 server.requestTimeout = 15_000;
 server.headersTimeout = 10_000;
 let shutdownPromise: Promise<void> | undefined;

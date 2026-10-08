@@ -38,6 +38,14 @@ curl -sS -H "Authorization: Bearer $PACHIBUS_API_KEY" http://127.0.0.1:8787/heal
 Esperado: `{"status":"ok"}`. Sin el header, debe devolver HTTP 401.
 Health confirma que la API responde, no que el modelo pueda realizar inferencias.
 
+La terminal de `npm run serve` registra `[HTTP] GET /health → recibido` y luego
+`[HTTP] GET /health → 200` (o 401 si la autenticación no coincide). No registra
+headers, clave, mensajes, query strings ni IDs. Para diagnosticar un rechazo de
+Actions, confirmar primero estas líneas con curl y repetir la prueba del GPT.
+Si curl deja entradas y la Action no deja ninguna, esta última se bloqueó antes
+de llegar a PachiBus; los registros no distinguen por sí solos cuál intermediario.
+Dejar el túnel abierto al reiniciar solo PachiBus para conservar su URL.
+
 ## 3. Dar acceso HTTPS a ChatGPT
 
 Si ya tenés `cloudflared`, en otra terminal:

@@ -14,8 +14,21 @@ class HttpError extends Error {
 }
 const digest = (text: string) => createHash('sha256').update(text).digest();
 const validId = (id: string) => /^[A-Za-z0-9_-]{1,128}$/.test(id);
+export type AccessEvent = { method: string; route: string; status: number | 'received' };
 
-export function createApi(bus: Bus, apiKey: string) {
+function diagnosticRoute(rawUrl: string) {
+  try {
+    const path = new URL(rawUrl, 'http://localhost').pathname;
+    if (path === '/health' || path === '/sessions') return path;
+    if (/^\/sessions\/[^/]+\/(resume|messages)$/.test(path)) {
+      return `/sessions/{threadId}/${path.endsWith('/resume') ? 'resume' : 'messages'}`;
+    }
+    if (/^\/jobs\/[^/]+$/.test(path)) return '/jobs/{jobId}';
+  } catch { /* Invalid URLs are never printed. */ }
+  return '[unknown route]';
+}
+
+export function createApi(bus: Bus, apiKey: string, onAccess?: (event: AccessEvent) => void) {
   if (apiKey.length < 32) throw new Error('PACHIBUS_API_KEY must contain at least 32 characters');
   const expected = digest(`Bearer ${apiKey}`);
   const sessions = new Set<string>();
@@ -41,6 +54,15 @@ export function createApi(bus: Bus, apiKey: string) {
     catch { throw new HttpError(400, 'Invalid JSON'); }
   }
   return createServer(async (req, res) => {
+    // Record arrival before authentication, without printing headers, bodies, IDs or query strings.
+    const method = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(req.method ?? '')
+      ? req.method! : '[other method]';
+    const route = diagnosticRoute(req.url ?? '/');
+    const record = (status: AccessEvent['status']) => {
+      try { onAccess?.({ method, route, status }); } catch { /* Logging cannot break an HTTP request. */ }
+    };
+    record('received');
+    res.once('finish', () => record(res.statusCode));
     try {
       if (!timingSafeEqual(expected, digest(req.headers.authorization ?? ''))) {
         res.setHeader('WWW-Authenticate', 'Bearer');
