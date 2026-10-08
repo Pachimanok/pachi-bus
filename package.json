@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test test/core.test.ts",
+    "test": "node --test test/core.test.ts test/http-api.test.ts",
+    "serve": "node server.ts",
+    "action:schema": "node action-schema.ts",
     "spike": "node spike.ts",
     "spike:resume": "node spike.ts --resume",
     "spike:protocol": "node spike.ts --check-protocol"

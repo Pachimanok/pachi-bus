@@ -171,3 +171,12 @@ npm run spike:resume
 Esto revalida el núcleo usando el thread local existente. Para repetir además
 la prueba de una sesión nueva, ejecutar después `npm run spike` y
 `npm run spike:resume`. Sin framework web, base de datos, Docker, MCP ni UI.
+
+## GPT con Actions
+
+La API HTTP mínima ya está disponible con `npm run serve`. Ver
+[GPT-ACTIONS.md](GPT-ACTIONS.md) para iniciar en Linux, crear la clave local,
+publicar por un túnel HTTPS e importar el esquema OpenAPI al GPT privado.
+Usa trabajos asincrónicos para que la Action no espere toda la inferencia.
+Las pruebas HTTP y stdio se ejecutan con `npm test`, sin modelo ni credenciales.
+El recorrido completo desde el GPT aún no está validado.

@@ -18,9 +18,11 @@ export async function prepareRuntime(root: string, checkProtocol = false) {
   const localHome = join(state, 'codex-home');
   await mkdir(localHome, { recursive: true });
   await mkdir(join(state, 'tmp'), { recursive: true });
-  const childEnv = { ...process.env, RUST_LOG: 'warn', CODEX_HOME: localHome,
+  const childEnv: NodeJS.ProcessEnv = { ...process.env, RUST_LOG: 'warn', CODEX_HOME: localHome,
     TMPDIR: join(state, 'tmp'), XDG_CACHE_HOME: join(state, 'cache'),
     XDG_DATA_HOME: join(state, 'data'), XDG_STATE_HOME: join(state, 'state') };
+  // The HTTP credential belongs to PachiBus, not to the child agent environment.
+  delete childEnv.PACHIBUS_API_KEY;
   const version = execFileSync('codex', ['--version'], { env: childEnv, encoding: 'utf8' }).trim();
 
   // Validate the selected operation against schemas from THIS installed binary.
