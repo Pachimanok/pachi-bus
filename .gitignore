@@ -1,0 +1,16 @@
+.spike-schema/
+.spike-state/
+
+# Authentication, secrets and local diagnostics (at any directory depth).
+auth.json
+.env
+.env.*
+*token*
+*credential*
+*secret*
+*.pem
+*.key
+*.log
+*.jsonl
+.codex/
+.aws/

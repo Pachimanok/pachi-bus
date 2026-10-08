@@ -1,0 +1,7 @@
+{
+  "name": "pachibus-spike",
+  "private": true,
+  "type": "module",
+  "scripts": { "spike": "node spike.ts" },
+  "engines": { "node": ">=24" }
+}
