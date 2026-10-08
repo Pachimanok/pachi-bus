@@ -24,8 +24,9 @@ No se pretende ofrecer un cliente general de App Server.
 
 Todo el estado generado está en `.spike-state/` (ignorado por Git): ID en
 `thread-id.txt`, transcripción y errores en `last-run.json`, y estado de Codex.
-Cada ejecución crea un nuevo thread, pero los dos turnos usan ese mismo thread.
-No se prueba todavía reanudación tras reiniciar el proceso.
+`npm run spike` crea un nuevo thread, pero los dos turnos usan ese mismo thread.
+`npm run spike:resume` inicia otro proceso y reanuda el último thread guardado;
+solo pregunta por el código, sin volver a incluirlo en el mensaje.
 
 La autenticación existente se reutiliza mediante un enlace a `auth.json` bajo
 el `CODEX_HOME` original; no se copian ni imprimen credenciales. Este cliente no
@@ -35,8 +36,9 @@ de archivos por el agente. No se habilita remote control ni transportes de red
 entrantes. Codex sí necesita acceso saliente a su backend de modelos.
 
 Se deshabilitan Apps (para no iniciar su MCP) y reintentos de conexión ilimitados solo para este proceso y se
-aplican timeouts de 60 s por request y 180 s por turno. Al salir se termina el
-proceso hijo, con SIGKILL de respaldo tras 5 s.
+aplican timeouts de 60 s por request y 180 s por turno. Al salir se cierra stdin
+para permitir guardar la historia; si no termina, se envía SIGTERM tras 5 s
+y SIGKILL tras 10 s.
 
 ## Protocolo de esta versión
 
@@ -85,3 +87,31 @@ Usar Codex `0.159.0-alpha.3`, Node.js 24+ y autenticación local existente en
 El host debe tener conectividad al backend. Los esquemas pueden regenerarse
 con el comando anterior, pero no son necesarios para ejecutar el spike.
 No transferir el estado cloud ni archivos de autenticación: no están versionados.
+
+## Prueba de persistencia entre procesos
+
+La prueba de dos turnos dio PASS en Linux local con Codex `0.154.0`.
+Para verificar ahora persistencia, desde ese mismo checkout local:
+
+```sh
+git pull --ff-only
+npm run spike:protocol
+npm run spike:resume
+```
+
+No ejecutar `npm run spike` entre la prueba anterior y `spike:resume`, porque
+reemplazaría el ID guardado por el de un nuevo thread. Conservar `.spike-state/`
+en esa máquina: el ID y la historia del thread viven allí y no viajan por Git.
+
+El modo resume genera esquemas con el Codex realmente instalado y confirma
+`thread/resume` con parámetro `threadId` antes de iniciar App Server. El comando
+`spike:protocol` solo realiza esa comprobación, sin inferencia ni autenticación.
+Si no existe el método o el thread no puede recuperarse, falla; nunca crea un
+thread de reemplazo. Comprueba que el ID devuelto sea idéntico al guardado.
+
+PASS requiere que el turno reanudado termine con estado `completed` y que su
+respuesta contenga `MATE-1847`. Guarda la evidencia en
+`.spike-state/last-resume.json`, preservando `last-run.json` de la prueba inicial.
+La versión de Codex registrada se obtiene del binario, no está fijada en el código.
+La persistencia sigue pendiente de validar en Linux local; el cloud no puede
+realizar inferencias por su política de red.

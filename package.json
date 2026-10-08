@@ -2,6 +2,10 @@
   "name": "pachibus-spike",
   "private": true,
   "type": "module",
-  "scripts": { "spike": "node spike.ts" },
+  "scripts": {
+    "spike": "node spike.ts",
+    "spike:resume": "node spike.ts --resume",
+    "spike:protocol": "node spike.ts --check-protocol"
+  },
   "engines": { "node": ">=24" }
 }

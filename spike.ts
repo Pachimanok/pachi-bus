@@ -1,6 +1,6 @@
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { mkdir, symlink, access, writeFile } from 'node:fs/promises';
+import { mkdir, symlink, access, writeFile, readFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -8,8 +8,41 @@ import { homedir } from 'node:os';
 const root = resolve(import.meta.dirname);
 const state = join(root, '.spike-state');
 const localHome = join(state, 'codex-home');
+const args = process.argv.slice(2);
+if (args.length > 1 || (args.length === 1 && !['--resume', '--check-protocol'].includes(args[0]))) {
+  throw new Error('Usage: node spike.ts [--resume | --check-protocol]');
+}
+const resume = args[0] === '--resume';
 await mkdir(localHome, { recursive: true });
 await mkdir(join(state, 'tmp'), { recursive: true });
+const childEnv = { ...process.env, RUST_LOG: 'warn', CODEX_HOME: localHome,
+  TMPDIR: join(state, 'tmp'), XDG_CACHE_HOME: join(state, 'cache'),
+  XDG_DATA_HOME: join(state, 'data'), XDG_STATE_HOME: join(state, 'state') };
+const version = execFileSync('codex', ['--version'], { env: childEnv, encoding: 'utf8' }).trim();
+console.log(`Codex: ${version}`);
+// Validate the selected operation against schemas from THIS installed binary.
+if (resume || args[0] === '--check-protocol') {
+  const out = join(root, '.spike-schema');
+  execFileSync('codex', ['app-server', 'generate-json-schema', '--out', out], { env: childEnv });
+  const schema = JSON.parse(await readFile(join(out, 'ClientRequest.json'), 'utf8'));
+  for (const method of ['initialize', 'thread/start', 'thread/resume', 'turn/start']) {
+    const found = schema.oneOf.find((s: any) => s.properties?.method?.enum?.includes(method));
+    if (!found) throw new Error(`${version} does not advertise ${method}`);
+    if (method === 'thread/resume') {
+      const definition = schema.definitions[found.properties.params.$ref.split('/').at(-1)];
+      if (definition?.properties?.threadId?.type !== 'string') {
+        throw new Error('Unsupported thread/resume schema: expected string threadId');
+      }
+    }
+  }
+  console.log('Protocolo confirmado: initialize, thread/start, thread/resume, turn/start');
+  if (args[0] === '--check-protocol') process.exit(0); // No server, auth or inference.
+}
+let savedThreadId: string | undefined;
+if (resume) {
+  savedThreadId = (await readFile(join(state, 'thread-id.txt'), 'utf8')).trim();
+  if (!savedThreadId) throw new Error('No saved thread ID. Run npm run spike first.');
+}
 const existingAuth = join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'auth.json');
 const localAuth = join(localHome, 'auth.json');
 try {
@@ -25,18 +58,17 @@ const pending = new Map<number | string, Pending>();
 const completions = new Map<string, any>();
 const messages = new Map<string, Map<string, string>>();
 const waiters = new Map<string, Pending>();
-const transcript: any = { version: '0.159.0-alpha.3', turns: [], serverRequests: [], errors: [] };
+const transcript: any = { version, mode: resume ? 'resume' : 'new', turns: [], serverRequests: [], errors: [] };
 let nextId = 1;
 let fatal: Error | undefined;
 let stopping = false;
 const key = (threadId: string, turnId: string) => JSON.stringify([threadId, turnId]);
 const child = spawn('codex', ['app-server', '--stdio', '--disable', 'unbounded_connection_retries', '--disable', 'apps'], {
   cwd: root,
-  env: { ...process.env, RUST_LOG: 'warn', CODEX_HOME: localHome, TMPDIR: join(state, 'tmp'),
-    XDG_CACHE_HOME: join(state, 'cache'), XDG_DATA_HOME: join(state, 'data'),
-    XDG_STATE_HOME: join(state, 'state') },
+  env: childEnv,
   stdio: ['pipe', 'pipe', 'pipe'],
 });
+transcript.appServerPid = child.pid;
 const closed = new Promise<void>(resolve => child.once('close', () => resolve()));
 child.stderr.on('data', data => process.stderr.write(data));
 function fail(error: Error) {
@@ -132,15 +164,19 @@ try {
   await request('initialize', { clientInfo: { name: 'pachibus_spike', version: '0.1.0' } });
   send({ method: 'initialized' });
   console.log(`App Server iniciado (PID ${child.pid}, stdio)`);
-  const { thread } = await request('thread/start', {
-    cwd: root, sandbox: 'read-only', approvalPolicy: 'never',
-    developerInstructions: 'Esta es una prueba conversacional. Respondé solo con texto; no uses herramientas, no ejecutes comandos ni modifiques archivos.',
-  });
+  const { thread } = resume
+    ? await request('thread/resume', { threadId: savedThreadId, cwd: root, sandbox: 'read-only', approvalPolicy: 'never' })
+    : await request('thread/start', {
+      cwd: root, sandbox: 'read-only', approvalPolicy: 'never',
+      developerInstructions: 'Esta es una prueba conversacional. Respondé solo con texto; no uses herramientas, no ejecutes comandos ni modifiques archivos.',
+    });
+  if (resume && thread.id !== savedThreadId) throw new Error('Resumed thread ID differs from saved ID');
   transcript.threadId = thread.id;
-  await writeFile(join(state, 'thread-id.txt'), thread.id + '\n');
+  if (!resume) await writeFile(join(state, 'thread-id.txt'), thread.id + '\n');
   console.log(`Thread ID: ${thread.id}`);
-  await turn(thread.id, 'Estamos probando PachiBus. Recordá que el código secreto de esta sesión es MATE-1847. Respondé confirmando que lo recordaste.', 1);
-  const response = await turn(thread.id, '¿Cuál era el código secreto que te indiqué antes?', 2);
+  if (resume) console.log('Thread reanudado en un proceso nuevo; no se reenvía el código.');
+  else await turn(thread.id, 'Estamos probando PachiBus. Recordá que el código secreto de esta sesión es MATE-1847. Respondé confirmando que lo recordaste.', 1);
+  const response = await turn(thread.id, '¿Cuál era el código secreto que te indiqué antes?', resume ? 3 : 2);
   const pass = response.includes('MATE-1847');
   transcript.result = pass ? 'PASS' : 'FAIL';
   console.log(`Verificación: ${transcript.result}`);
@@ -151,12 +187,15 @@ try {
   console.error(`Verificación: FAIL — ${transcript.error}`);
   process.exitCode = 1;
 } finally {
-  await writeFile(join(state, 'last-run.json'), JSON.stringify(transcript, null, 2) + '\n');
+  await writeFile(join(state, resume ? 'last-resume.json' : 'last-run.json'), JSON.stringify(transcript, null, 2) + '\n');
   stopping = true;
   fail(new Error('Client shutting down'));
   child.stdin.end();
-  child.kill('SIGTERM');
-  const timer = setTimeout(() => child.kill('SIGKILL'), 5000);
+  // Give the server time to flush persisted history on EOF before escalating.
+  const termTimer = setTimeout(() => child.kill('SIGTERM'), 5000);
+  const killTimer = setTimeout(() => child.kill('SIGKILL'), 10_000);
   await closed;
-  clearTimeout(timer);
+  clearTimeout(termTimer);
+  clearTimeout(killTimer);
+  console.log('App Server cerrado.');
 }
