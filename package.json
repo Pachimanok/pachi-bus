@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test test/core.test.ts",
     "spike": "node spike.ts",
     "spike:resume": "node spike.ts --resume",
     "spike:protocol": "node spike.ts --check-protocol"

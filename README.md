@@ -1,6 +1,9 @@
 # PachiBus: spike stdio
 
-Cliente conversacional mínimo para `codex-cli 0.159.0-alpha.3`.
+Núcleo conversacional mínimo y spike para Codex App Server.
+Protocolo inspeccionado en `0.159.0-alpha.3`; pruebas de dos turnos y reanudación
+entre procesos dieron PASS en Linux local con `codex-cli 0.154.0` antes de extraer
+el núcleo. La extracción necesita volver a validarse con inferencias locales.
 Requiere Node.js 24+, npm y Codex en PATH; no instala dependencias.
 
 ```sh
@@ -113,5 +116,58 @@ PASS requiere que el turno reanudado termine con estado `completed` y que su
 respuesta contenga `MATE-1847`. Guarda la evidencia en
 `.spike-state/last-resume.json`, preservando `last-run.json` de la prueba inicial.
 La versión de Codex registrada se obtiene del binario, no está fijada en el código.
-La persistencia sigue pendiente de validar en Linux local; el cloud no puede
+La persistencia del spike original dio PASS en Linux local. El cloud no puede
 realizar inferencias por su política de red.
+
+## Núcleo mínimo
+
+`core.ts` exporta `startPachiBus(cwd, eventosOpcionales)`, que arranca App Server
+y negocia el protocolo. El cliente devuelto ofrece:
+
+- `createSession()` → ID del thread nuevo.
+- `resumeSession(threadId)` → el mismo ID; falla si el servidor devuelve otro.
+- `sendMessage(threadId, texto)` → `{ threadId, turnId, response, status }` al terminar.
+- `close()` → cierre y espera del proceso hijo; se puede llamar más de una vez.
+
+Ejemplo desde un archivo TypeScript en la raíz del proyecto:
+
+```ts
+import { startPachiBus } from './core.ts';
+
+const bus = await startPachiBus(import.meta.dirname);
+try {
+  const id = await bus.createSession();
+  console.log(await bus.sendMessage(id, 'Recordá el nombre PachiBus.'));
+  console.log(await bus.sendMessage(id, '¿Qué nombre te indiqué?'));
+  // Guardar id para usar bus.resumeSession(id) en un proceso futuro.
+} finally {
+  await bus.close();
+}
+```
+
+El núcleo no fija mensajes ni guarda un registro de sesiones propio. Codex mantiene
+su historia en el estado local; el consumidor conserva los IDs. `spike.ts` conserva
+la prueba de MATE-1847 y guarda su evidencia usando ese núcleo.
+Solo admite texto y rechaza turnos simultáneos sobre el mismo thread, evitando
+que `turn/start` se interprete como steering de un turno activo. Los callbacks
+opcionales `stderr`, `serverRequest` y `error` permiten observar el proceso.
+
+```sh
+npm test
+```
+
+Los tests usan un proceso simulador sin red ni credenciales: verifican IDs,
+respuestas desordenadas, eventos previos a respuestas, aislamiento entre threads,
+reanudación, turnos fallidos, requests del servidor y cierre con trabajo pendiente.
+No sustituyen las pruebas reales del modelo. Después de actualizar en Linux:
+
+```sh
+git pull --ff-only
+npm test
+npm run spike:protocol
+npm run spike:resume
+```
+
+Esto revalida el núcleo usando el thread local existente. Para repetir además
+la prueba de una sesión nueva, ejecutar después `npm run spike` y
+`npm run spike:resume`. Sin framework web, base de datos, Docker, MCP ni UI.
