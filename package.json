@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test test/core.test.ts test/http-api.test.ts",
+    "test": "node --test test/core.test.ts test/http-api.test.ts test/diagnose.test.ts",
+    "diagnose": "node diagnose.ts",
     "serve": "node server.ts",
     "action:schema": "node action-schema.ts",
     "spike": "node spike.ts",

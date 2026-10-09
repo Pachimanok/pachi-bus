@@ -180,3 +180,12 @@ publicar por un túnel HTTPS e importar el esquema OpenAPI al GPT privado.
 Usa trabajos asincrónicos para que la Action no espere toda la inferencia.
 Las pruebas HTTP y stdio se ejecutan con `npm test`, sin modelo ni credenciales.
 El recorrido completo desde el GPT aún no está validado.
+
+## Diagnóstico y ejecución local
+
+`npm run diagnose` comprueba runtime, presencia de la clave, API local, esquema
+de la Action y HTTPS del túnel configurado. Guarda un informe sin credenciales
+en `.spike-state/diagnostic-report.json`. `-- --local-only` omite el túnel.
+No inicia servicios, no cambia configuraciones y no ejecuta inferencias.
+El flujo cloud → GitHub → Codex local y su rollback se describen en
+[LOCAL-DEPLOY.md](LOCAL-DEPLOY.md).
